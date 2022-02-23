@@ -38,11 +38,15 @@ HOMEWORK_STATUSES = {
 
 
 def send_message(bot, message):
-    bot.send_message(
+    try:
+        bot.send_message(
         chat_id=TELEGRAM_CHAT_ID,
         text=str(message)
     )
-
+    except telegram.error.TelegramError:
+        logger.error('Ошибка при отправке сообщения в telegram')
+    else:
+        logger.info('Сообщение успешно отправлено в telegram')
 
 def get_api_answer(current_timestamp):
     timestamp = current_timestamp or int(time.time())
@@ -71,7 +75,7 @@ def check_tokens():
     }
     for token_name, token_value  in token_dict.items():
         if not token_value:
-            logging.critical(f'Отсутствует обязательная переменная окружения: {token_name}')
+            logger.critical(f'Отсутствует обязательная переменная окружения: {token_name}')
     return tokens_status
 
 def main():
@@ -88,11 +92,8 @@ def main():
                 message = ''
                 for elem in hw_list:
                     message += '\n' + parse_status(elem)
-                    print(message)
                 send_message(bot, message)
-
                 current_timestamp = time.time()
-
                 time.sleep(RETRY_TIME)
 
             except Exception as error:
