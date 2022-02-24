@@ -1,3 +1,4 @@
 class HwStatusError(Exception):
-    """Raises when homework status not in list"""
+    """Raises when homework status failure."""
+
     pass

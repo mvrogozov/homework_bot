@@ -6,6 +6,7 @@ from logging import StreamHandler
 from typing import Optional, Union
 
 import requests
+import json
 import telegram
 from dotenv import load_dotenv
 
@@ -56,10 +57,13 @@ def get_api_answer(current_timestamp) -> dict:
     """Get answer from API, using timestamp."""
     timestamp: int = current_timestamp or int(time.time())
     params: dict = {'from_date': timestamp}
-    hw_status: requests.Response = requests.get(
-        ENDPOINT, headers=HEADERS, params=params
-    )
-    if hw_status.status_code != 200:
+    try:
+        hw_status: requests.Response = requests.get(
+            ENDPOINT, headers=HEADERS, params=params
+        )
+    except requests.exceptions.RequestException:
+        logger.error(f'Ошибка при запросе к {ENDPOINT}.')
+    if hw_status.status_code != HTTPStatus.OK:
         if hw_status.status_code == HTTPStatus.NOT_FOUND:
             err_message = (
                 f'Не  найден endpoint адрес {ENDPOINT}. '
@@ -82,12 +86,16 @@ def get_api_answer(current_timestamp) -> dict:
             logger.error(err_message)
             raise HwStatusError(err_message)
         raise requests.RequestException
-    return hw_status.json()
+    try:
+        result = hw_status.json()
+    except json.decoder.JSONDecodeError:
+        logger.error('Не удалось декодировать ответ от API.')
+    return result
 
 
 def check_response(response) -> list:
     """Validate response."""
-    if type(response) != dict:
+    if type(response) is not dict:
         logger.error(f'Неверный формат ответа от API: {type(response)}')
         raise TypeError
     hw_list: Union[list, str] = response.get('homeworks', 'no_key')
@@ -96,7 +104,7 @@ def check_response(response) -> list:
             f'В ответе API отсутствует ожидаемый ключ. response = {response}'
         )
         raise KeyError
-    if type(hw_list) != list:
+    if type(hw_list) is not list:
         logger.error(
             f'Неверный формат данных в ответе от API: {type(hw_list)}'
         )
@@ -106,12 +114,12 @@ def check_response(response) -> list:
 
 def parse_status(homework) -> str:
     """Parsing results."""
-    homework_name: str = homework.get('homework_name')
-    if 'homework_name' not in homework.keys():
+    if 'homework_name' not in homework:
         logger.error('Отсутствует имя работы.')
         raise KeyError
+    homework_name: str = homework.get('homework_name')
     homework_status: str = homework.get('status')
-    if homework_status not in HOMEWORK_STATUSES.keys():
+    if homework_status not in HOMEWORK_STATUSES:
         logger.error('Недокументированный статус работы.')
         raise HwStatusError
     else:
