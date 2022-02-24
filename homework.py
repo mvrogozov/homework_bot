@@ -3,7 +3,9 @@ import os
 import time
 import telegram
 import requests
+from exceptions import HwStatusError
 from telegram import Bot
+from http  import HTTPStatus
 from dotenv import load_dotenv
 from logging import StreamHandler
 
@@ -35,8 +37,6 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-
-
 def send_message(bot, message):
     try:
         bot.send_message(
@@ -52,17 +52,44 @@ def get_api_answer(current_timestamp):
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     hw_status = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    if hw_status.status_code != 200:
+        if hw_status.status_code == HTTPStatus.NOT_FOUND:
+            logger.error(f'Не  найден endpoint адрес {ENDPOINT}. Код ответа API: {hw_status.status_code}')
+        elif 400 <= hw_status.status_code < 500:
+            logger.error('Ошибка в клиентской части при запросе к {ENDPOINT}, код: {hw_status.status_code}')
+        elif hw_status.status_code >= 500:
+            logger.error('Ошибка на сервере при запросе к {ENDPOINT}, код: {response.status_code}')
+        raise requests.RequestException
     return hw_status.json()
 
 
 def check_response(response):
-    return response.get('homeworks')# todo
+    if type(response) != dict:
+        logger.error(f'Неверный формат ответа от API: {type(response)}')
+        raise TypeError
+    hw_list = response.get('homeworks', 'no_key')
+    if hw_list == 'no_key':
+        logger.error(f'В ответе API отсутствует ожидаемый ключ. response = {response}')
+        raise KeyError
+    
+    if type(hw_list) != list:
+        logger.error(f'Неверный формат данных в ответе от API: {type(hw_list)}')
+        raise TypeError
+    return hw_list
 
 
 def parse_status(homework):
     homework_name = homework.get('homework_name')
+    if 'homework_name' not in homework.keys():
+        logger.error('Отсутствует имя работы.')
+        raise KeyError
     homework_status = homework.get('status')
-    verdict = HOMEWORK_STATUSES[homework_status]
+    if homework_status not in HOMEWORK_STATUSES.keys():
+        logger.error('Недокументированный статус работы.')
+        raise HwStatusError
+    else:
+        logger.debug('Новые статусы в ответе отсутствуют.')
+    verdict = HOMEWORK_STATUSES.get(homework_status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -89,21 +116,20 @@ def main():
             try:
                 response = get_api_answer(current_timestamp)
                 hw_list = check_response(response)
-                message = ''
-                for elem in hw_list:
-                    message += '\n' + parse_status(elem)
-                send_message(bot, message)
-                current_timestamp = time.time()
+                if hw_list:
+                    message = ''
+                    for elem in hw_list:
+                        message += '\n' + parse_status(elem)
+                    send_message(bot, message)
+                current_timestamp = int(time.time())
+                logger.debug('Новых сообщений нет.')
                 time.sleep(RETRY_TIME)
 
             except Exception as error:
                 message = f'Сбой в работе программы: {error}'
-                ...
+                logger.error(message)
                 break
                 time.sleep(RETRY_TIME)
-            else:
-                break
-
 
 if __name__ == '__main__':
     main()
