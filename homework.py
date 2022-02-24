@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -6,7 +7,6 @@ from logging import StreamHandler
 from typing import Optional, Union
 
 import requests
-import json
 import telegram
 from dotenv import load_dotenv
 
