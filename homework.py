@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -93,39 +94,58 @@ def get_api_answer(current_timestamp) -> dict:
     return result
 
 
-def check_response(response) -> list:
-    """Validate response."""
-    if type(response) is not dict:
-        logger.error(f'Неверный формат ответа от API: {type(response)}')
-        raise TypeError
-    hw_list: Union[list, str] = response.get('homeworks', 'no_key')
-    if hw_list == 'no_key':
-        logger.error(
-            f'В ответе API отсутствует ожидаемый ключ. response = {response}'
-        )
-        raise KeyError
-    if type(hw_list) is not list:
-        logger.error(
-            f'Неверный формат данных в ответе от API: {type(hw_list)}'
-        )
-        raise TypeError
-    return hw_list
+@dataclass
+class ParsedMessage:
+    """Check response and parse it to message."""
 
+    response: requests.Response
 
-def parse_status(homework) -> str:
-    """Parsing results."""
-    if 'homework_name' not in homework:
-        logger.error('Отсутствует имя работы.')
-        raise KeyError
-    homework_name: str = homework.get('homework_name')
-    homework_status: str = homework.get('status')
-    if homework_status not in HOMEWORK_STATUSES:
-        logger.error('Недокументированный статус работы.')
-        raise HwStatusError
-    else:
-        logger.debug('Новые статусы в ответе отсутствуют.')
-    verdict: Optional[str] = HOMEWORK_STATUSES.get(homework_status)
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    def check_response(self) -> list:
+        """Validate response."""
+        if type(self.response) is not dict:
+            logger.error(
+                f'Неверный формат ответа от API: {type(self.response)}'
+            )
+            raise TypeError
+        hw_list: Union[list, str] = self.response.get('homeworks', 'no_key')
+        if hw_list == 'no_key':
+            logger.error(
+                f'В ответе API отсутствует ожидаемый ключ.'
+                f'self.response = {self.response}'
+            )
+            raise KeyError
+        if type(hw_list) is not list:
+            logger.error(
+                f'Неверный формат данных в ответе от API: {type(hw_list)}'
+            )
+            raise TypeError
+        return hw_list
+
+    def parse_status(self, homework) -> str:
+        """Parsing results."""
+        if 'homework_name' not in homework:
+            logger.error('Отсутствует имя работы.')
+            raise KeyError
+        homework_name: str = homework.get('homework_name')
+        homework_status: str = homework.get('status')
+        if homework_status not in HOMEWORK_STATUSES:
+            logger.error('Недокументированный статус работы.')
+            raise HwStatusError
+        else:
+            logger.debug('Новые статусы в ответе отсутствуют.')
+        verdict: Optional[str] = HOMEWORK_STATUSES.get(homework_status)
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+
+    def get_message(self) -> str:
+        """Getting message."""
+        hw_list = self.check_response()
+        if hw_list:
+            message = ''
+            for elem in hw_list:
+                message += '\n' + self.parse_status(elem)
+            return message
+        else:
+            logger.debug('Новых сообщений нет.')
 
 
 def check_tokens() -> bool:
@@ -149,20 +169,22 @@ def check_tokens() -> bool:
 def main():
     """Main logic."""
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
+    current_timestamp = int(time.time()) - 60 * 60 * 24 * 30
     last_error = ''
     if check_tokens():
         while True:
             try:
                 response = get_api_answer(current_timestamp)
-                hw_list = check_response(response)
+                message = ParsedMessage(response).get_message()
+                send_message(bot, message)
+                '''hw_list = check_response(response)
                 if hw_list:
                     message = ''
                     for elem in hw_list:
                         message += '\n' + parse_status(elem)
                     send_message(bot, message)
                 else:
-                    logger.debug('Новых сообщений нет.')
+                    logger.debug('Новых сообщений нет.')'''
                 current_timestamp: int = int(time.time())
                 time.sleep(RETRY_TIME)
 
